@@ -25,6 +25,24 @@ interface Sub {
   cardLast4: string | null;
 }
 
+interface Quota {
+  plan: "free" | "pro";
+  period: "day" | "month";
+  limit: number;
+  used: number;
+  remaining: number;
+  allowed: boolean;
+}
+
+interface Remix {
+  id: string;
+  sourceUrl: string;
+  title: string;
+  createdAt: string;
+  prompt: string;
+  starred: boolean;
+}
+
 const DEFAULTS: Settings = {
   baseUrl: "http://localhost:11434",
   model: "llama3",
@@ -37,6 +55,9 @@ export function SettingsClient() {
   const [status, setStatus] = useState<OllamaStatus | null>(null);
   const [checking, setChecking] = useState(false);
   const [sub, setSub] = useState<Sub | null>(null);
+  const [quota, setQuota] = useState<Quota | null>(null);
+  const [remixes, setRemixes] = useState<Remix[]>([]);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const [prompt, setPrompt] = useState("");
   const [genNotice, setGenNotice] = useState("");
@@ -65,17 +86,37 @@ export function SettingsClient() {
     }
   }, []);
 
+  const loadRemixes = useCallback(() => {
+    fetch("/api/remixes", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        setRemixes(Array.isArray(data.remixes) ? data.remixes : []);
+        if (data.quota) setQuota(data.quota);
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
-    // Restore saved settings
-    const saved = typeof window !== "undefined" ? localStorage.getItem("mousey:settings") : null;
-    const initial = saved ? { ...DEFAULTS, ...JSON.parse(saved) } : DEFAULTS;
+    // Restore saved settings (tolerate corrupt/legacy localStorage).
+    let initial = DEFAULTS;
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("mousey:settings");
+      if (saved) {
+        try {
+          initial = { ...DEFAULTS, ...JSON.parse(saved) };
+        } catch {
+          localStorage.removeItem("mousey:settings");
+        }
+      }
+    }
     setSettings(initial);
     checkStatus(initial);
     fetch("/api/subscription", { cache: "no-store" })
       .then((r) => r.json())
       .then(setSub)
       .catch(() => {});
-  }, [checkStatus]);
+    loadRemixes();
+  }, [checkStatus, loadRemixes]);
 
   function update<K extends keyof Settings>(key: K, value: Settings[K]) {
     const next = { ...settings, [key]: value };
@@ -97,13 +138,27 @@ export function SettingsClient() {
       });
       const data = await res.json();
       setPrompt(data.prompt || "");
+      if (data.quota) setQuota(data.quota);
       if (data.notice) setGenNotice(data.notice);
       else if (data.refined) setGenNotice(`Refined by local model: ${data.model}`);
+      // A successful Pro refinement is saved to history — refresh the list.
+      if (data.refined) loadRemixes();
     } catch {
       setGenNotice("Generation failed. Is the dev server running?");
     } finally {
       setGenerating(false);
     }
+  }
+
+  async function copyRemix(r: Remix) {
+    if (!navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(r.prompt);
+    } catch {
+      return;
+    }
+    setCopiedId(r.id);
+    setTimeout(() => setCopiedId((id) => (id === r.id ? null : id)), 1600);
   }
 
   async function rewrite() {
@@ -129,10 +184,16 @@ export function SettingsClient() {
   async function cancelPro() {
     const res = await fetch("/api/subscription", { method: "DELETE" });
     setSub(await res.json());
+    loadRemixes(); // quota period flips back to the free daily limit
   }
 
-  function copyPrompt() {
-    navigator.clipboard?.writeText(prompt);
+  async function copyPrompt() {
+    if (!navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(prompt);
+    } catch {
+      return;
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   }
@@ -262,6 +323,33 @@ export function SettingsClient() {
               </a>
             )}
           </div>
+          {quota && (
+            <div className="mt-4 border-t border-line pt-4">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-white/50">
+                  AI remixes this {quota.period}
+                </span>
+                <span className="font-mono text-white/75">
+                  {quota.used} / {quota.limit}
+                </span>
+              </div>
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-ink-800">
+                <div
+                  className={`h-full rounded-full ${
+                    quota.remaining > 0 ? "bg-accent-500" : "bg-amber-500"
+                  }`}
+                  style={{
+                    width: `${Math.min(100, (quota.used / Math.max(1, quota.limit)) * 100)}%`,
+                  }}
+                />
+              </div>
+              {quota.remaining <= 0 && quota.plan === "free" && (
+                <p className="mt-2 text-[11px] text-amber-300/80">
+                  Daily free limit reached. Upgrade for {/* */}500 AI remixes per month.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -338,6 +426,47 @@ export function SettingsClient() {
               </span>
               {rewriteOut}
             </div>
+          )}
+        </div>
+
+        {/* Remix history (Pro) */}
+        <div className="rounded-2xl border border-line bg-ink-850/60 p-6">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-white">
+            <History className="h-4 w-4 text-accent-400" /> Saved remixes
+            <span className="rounded-full border border-accent-500/40 bg-accent-500/15 px-2 py-0.5 text-[10px] font-medium text-accent-400">
+              Pro
+            </span>
+          </h2>
+          <p className="mt-1.5 text-xs text-white/45">
+            Successful AI-refined remixes are saved here so you can replay them.
+          </p>
+          {remixes.length === 0 ? (
+            <p className="mt-4 text-xs text-white/35">
+              No saved remixes yet. Generate one with Pro active to save it.
+            </p>
+          ) : (
+            <ul className="mt-4 space-y-2">
+              {remixes.map((r) => (
+                <li
+                  key={r.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-line bg-ink-900 px-3 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm text-white/80">{r.title || "Untitled"}</p>
+                    <p className="truncate text-[11px] text-white/35">
+                      {new Date(r.createdAt).toLocaleString()}
+                      {r.sourceUrl ? ` · ${r.sourceUrl}` : ""}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => copyRemix(r)}
+                    className="shrink-0 text-xs text-accent-400 hover:text-accent-300"
+                  >
+                    {copiedId === r.id ? "Copied!" : "Copy"}
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </div>

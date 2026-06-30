@@ -11,21 +11,43 @@
 
 import type { DesignSystem } from "./types";
 
-function uniq<T>(arr: T[]): T[] {
-  return Array.from(new Set(arr));
-}
+// NOTE: the pure helpers below (rgbToHex, topN, classifyDensity) are exported
+// so they can be unit-tested without a DOM. extractDesignSystem itself needs a
+// live Document and is exercised separately.
 
-function rgbToHex(value: string): string {
-  const m = value.match(/rgba?\(([^)]+)\)/);
+export function rgbToHex(value: string): string {
+  // Accepts both the legacy comma form `rgb(0, 0, 0)` / `rgba(0,0,0,0.5)` and
+  // the modern space form `rgb(0 0 0 / 50%)` that some engines emit.
+  const m = value.match(/rgba?\(([^)]+)\)/i);
   if (!m) return value;
-  const parts = m[1].split(",").map((p) => parseFloat(p.trim()));
-  const [r, g, b] = parts;
+  const body = m[1].includes("/") ? m[1].replace("/", " ") : m[1];
+  const parts = body
+    .split(/[\s,]+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length < 3) return value;
+
+  const r = parseFloat(parts[0]);
+  const g = parseFloat(parts[1]);
+  const b = parseFloat(parts[2]);
   if ([r, g, b].some((n) => Number.isNaN(n))) return value;
-  const hex = (n: number) => Math.round(n).toString(16).padStart(2, "0");
-  return `#${hex(r)}${hex(g)}${hex(b)}`;
+
+  const hex = (n: number) => Math.round(Math.min(255, Math.max(0, n))).toString(16).padStart(2, "0");
+  let out = `#${hex(r)}${hex(g)}${hex(b)}`;
+
+  // Preserve a non-opaque alpha as an 8-digit hex so translucent surfaces don't
+  // collapse onto their opaque counterparts in the palette.
+  if (parts.length >= 4) {
+    const raw = parts[3];
+    const a = raw.endsWith("%") ? parseFloat(raw) / 100 : parseFloat(raw);
+    if (!Number.isNaN(a) && a < 1) {
+      out += hex(a * 255);
+    }
+  }
+  return out;
 }
 
-function topN<T>(items: T[], n: number): T[] {
+export function topN<T>(items: T[], n: number): T[] {
   const counts = new Map<string, { item: T; count: number }>();
   for (const it of items) {
     const key = JSON.stringify(it);
@@ -39,7 +61,7 @@ function topN<T>(items: T[], n: number): T[] {
     .map((e) => e.item);
 }
 
-function classifyDensity(avgPadding: number): DesignSystem["spacing"]["density"] {
+export function classifyDensity(avgPadding: number): DesignSystem["spacing"]["density"] {
   if (avgPadding < 16) return "compact";
   if (avgPadding > 40) return "spacious";
   return "comfortable";
@@ -142,7 +164,7 @@ export function extractDesignSystem(doc?: Document): DesignSystem {
     colors: {
       background: topBg,
       text: topText,
-      accent: uniq(topAccent),
+      accent: topAccent,
       border: topN(borderColors, 3),
       palette,
       contrastStyle: topBg[0] === "#ffffff" ? "light / high contrast" : "dark / high contrast",

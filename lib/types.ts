@@ -60,6 +60,26 @@ export interface RemixRecord {
 
 export type Plan = "free" | "pro";
 
+// Remix usage counters. Free plans are limited per day, Pro plans per month;
+// both counters live here and reset lazily when their period rolls over.
+export interface Usage {
+  userId: string;
+  day: string; // YYYY-MM-DD (UTC)
+  dayCount: number;
+  month: string; // YYYY-MM (UTC)
+  monthCount: number;
+}
+
+// Result of checking (and optionally consuming) a remix against the quota.
+export interface QuotaStatus {
+  plan: Plan;
+  period: "day" | "month";
+  limit: number;
+  used: number;
+  remaining: number;
+  allowed: boolean;
+}
+
 export interface Subscription {
   userId: string;
   plan: Plan;

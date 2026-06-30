@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateWithOllama, checkOllama } from "@/lib/ollama";
-import { defaultOllamaSettings } from "@/lib/config";
+import { generateWithOllama } from "@/lib/ollama";
+import { defaultOllamaSettings, resolveOllamaSettings } from "@/lib/config";
+import { getSubscription } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
 // Pro feature: AI copy rewriting. Powered by the same LOCAL Ollama instance.
+// Gated server-side behind an active Pro subscription — the UI gating in
+// Settings is convenience only and must not be the sole enforcement point.
 export async function POST(req: NextRequest) {
   let body: { text?: string; tone?: string; settings?: Partial<ReturnType<typeof defaultOllamaSettings>> };
   try {
@@ -13,21 +16,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  const sub = await getSubscription();
+  if (!(sub.plan === "pro" && sub.status === "active")) {
+    return NextResponse.json(
+      { error: "AI copy rewriting is a Pro feature. Upgrade to Pro to use it." },
+      { status: 403 }
+    );
+  }
+
   const text = (body.text || "").trim();
   if (!text) {
     return NextResponse.json({ error: "Missing text to rewrite" }, { status: 400 });
   }
 
   const tone = body.tone || "confident, direct, builder-focused";
-  const settings = { ...defaultOllamaSettings(), ...(body.settings || {}) };
-
-  const status = await checkOllama(settings.baseUrl);
-  if (!status.running) {
-    return NextResponse.json(
-      { error: "Start Ollama to enable AI copy rewriting." },
-      { status: 503 }
-    );
-  }
+  const settings = resolveOllamaSettings(body.settings);
 
   try {
     const rewritten = await generateWithOllama({

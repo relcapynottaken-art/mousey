@@ -1,4 +1,5 @@
 import type { OllamaSettings } from "./config";
+import { isAllowedOllamaUrl, OLLAMA_ENDPOINT_BLOCKED_MESSAGE } from "./net";
 
 // Thin client for a LOCAL Ollama runtime. No cloud providers, no API keys.
 // Everything here targets http://localhost:11434 by default.
@@ -12,12 +13,18 @@ export interface OllamaStatus {
 
 export async function checkOllama(baseUrl: string): Promise<OllamaStatus> {
   const endpoint = baseUrl.replace(/\/$/, "");
+  if (!isAllowedOllamaUrl(baseUrl)) {
+    return { running: false, models: [], endpoint, error: OLLAMA_ENDPOINT_BLOCKED_MESSAGE };
+  }
   try {
     const res = await fetch(`${endpoint}/api/tags`, {
       method: "GET",
       // short timeout so the UI never hangs when Ollama is offline
       signal: AbortSignal.timeout(2500),
       cache: "no-store",
+      // Don't follow redirects: an allowed loopback host must not be able to
+      // bounce the server-side request to a blocked target (SSRF).
+      redirect: "error",
     });
     if (!res.ok) {
       return { running: false, models: [], endpoint, error: `HTTP ${res.status}` };
@@ -54,6 +61,9 @@ export async function generateWithOllama({
   prompt,
 }: GenerateArgs): Promise<string> {
   const endpoint = settings.baseUrl.replace(/\/$/, "");
+  if (!isAllowedOllamaUrl(settings.baseUrl)) {
+    throw new Error(OLLAMA_ENDPOINT_BLOCKED_MESSAGE);
+  }
   let res: Response;
   try {
     res = await fetch(`${endpoint}/api/generate`, {
@@ -71,6 +81,8 @@ export async function generateWithOllama({
       }),
       signal: AbortSignal.timeout(120000),
       cache: "no-store",
+      // See checkOllama: never follow redirects off the validated endpoint.
+      redirect: "error",
     });
   } catch {
     throw new Error(
