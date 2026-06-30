@@ -1,4 +1,5 @@
 import type { OllamaSettings } from "./config";
+import { isAllowedOllamaUrl, OLLAMA_ENDPOINT_BLOCKED_MESSAGE } from "./net";
 
 // Thin client for a LOCAL Ollama runtime. No cloud providers, no API keys.
 // Everything here targets http://localhost:11434 by default.
@@ -12,6 +13,9 @@ export interface OllamaStatus {
 
 export async function checkOllama(baseUrl: string): Promise<OllamaStatus> {
   const endpoint = baseUrl.replace(/\/$/, "");
+  if (!isAllowedOllamaUrl(baseUrl)) {
+    return { running: false, models: [], endpoint, error: OLLAMA_ENDPOINT_BLOCKED_MESSAGE };
+  }
   try {
     const res = await fetch(`${endpoint}/api/tags`, {
       method: "GET",
@@ -54,6 +58,9 @@ export async function generateWithOllama({
   prompt,
 }: GenerateArgs): Promise<string> {
   const endpoint = settings.baseUrl.replace(/\/$/, "");
+  if (!isAllowedOllamaUrl(settings.baseUrl)) {
+    throw new Error(OLLAMA_ENDPOINT_BLOCKED_MESSAGE);
+  }
   let res: Response;
   try {
     res = await fetch(`${endpoint}/api/generate`, {

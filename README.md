@@ -57,9 +57,10 @@ mousey/
 │   ├── settings/             # Local-model settings + live playground
 │   └── api/
 │       ├── ollama-status/    # Checks if Ollama is running
-│       ├── generate/         # Design system → AI-ready prompt (local model)
-│       ├── rewrite/          # Pro: AI copy rewriting (local model)
+│       ├── generate/         # Design system → AI-ready prompt (local model, quota-metered)
+│       ├── rewrite/          # Pro: AI copy rewriting (local model, Pro-gated)
 │       ├── checkout/         # Local mock payment → activates Pro
+│       ├── remixes/          # Saved remix history + current quota
 │       └── subscription/     # Read / cancel local subscription
 ├── components/
 │   ├── sections/             # Header, Hero, Workflow, Pricing, …
@@ -69,7 +70,9 @@ mousey/
 │   ├── extract.ts            # Deterministic client-side DOM design extraction
 │   ├── prompt.ts             # Deterministic prompt assembly
 │   ├── ollama.ts             # Local Ollama client
-│   ├── store.ts              # Local JSON subscription store (mock payments)
+│   ├── net.ts                # SSRF guard for the Ollama endpoint
+│   ├── validation.ts         # Pure card-format validators (Luhn / expiry / CVC)
+│   ├── store.ts              # Local JSON store: subscription + quota + remix history
 │   ├── sample.ts             # Sample extracted design system (demo/fallback)
 │   └── config.ts / types.ts
 ├── data/                     # Local subscription JSON (gitignored at runtime)
@@ -91,7 +94,12 @@ All configuration is **local-only**. There are **no cloud API keys**. Copy `.env
 | `OLLAMA_MODEL`       | `llama3`                         | Default local model (e.g. `llama3`, `mistral`)     |
 | `OLLAMA_TEMPERATURE` | `0.7`                            | Generation temperature (overridable in Settings)   |
 | `OLLAMA_MAX_TOKENS`  | `2048`                           | Max tokens (overridable in Settings)               |
+| `OLLAMA_ALLOWED_HOSTS` | _(empty)_                      | Extra non-loopback hosts allowed for the Ollama endpoint (SSRF allowlist) |
 | `DATABASE_URL`       | `file:./data/subscriptions.json` | Local mock subscription store                      |
+
+> **Endpoint safety:** the configurable Ollama endpoint is fetched **server-side**, so it is
+> restricted to loopback addresses (`localhost`, `127.0.0.0/8`, `::1`) to prevent SSRF on hosted
+> deployments. To target Ollama on another machine, list that host in `OLLAMA_ALLOWED_HOSTS`.
 
 > No `STRIPE_*`, `OPENAI_*`, `ANTHROPIC_*`, `GOOGLE_*`, or other cloud keys are used anywhere.
 
@@ -162,6 +170,19 @@ The Pro plan ($14.99/month) checkout at `/checkout` is a **fully functional loca
 To enable real payments, replace the local checkout with **Stripe Checkout** — see
 [`STRIPE_MIGRATION.md`](./STRIPE_MIGRATION.md).
 
+### Remix quota & Pro gating
+
+Remix limits are enforced **server-side**, not just in the UI:
+
+- **Free:** 1 AI-refined remix per day. The deterministic base prompt is always returned (never
+  blocked) — only the local-model refinement is metered.
+- **Pro:** 500 AI-refined remixes per month, plus **AI copy rewriting** (`/api/rewrite`, gated
+  behind an active Pro subscription) and **saved remix history** (`/api/remixes`, replayable from
+  Settings).
+
+Quota counters and saved remixes live in the same local JSON store and reset lazily when their
+day/month period rolls over.
+
 ---
 
 ## Deploy to Vercel (manual)
@@ -191,32 +212,28 @@ vercel --prod   # production deployment
 
 ---
 
-## Push to GitHub (manual)
+## Testing & checks
 
 ```bash
-git init
-git add .
-git commit -m "Initial commit: Mousey"
-
-# Using the GitHub CLI:
-gh repo create mousey --public --source=. --remote=origin --push
-
-# Or with an existing empty repo:
-git remote add origin https://github.com/<you>/mousey.git
-git branch -M main
-git push -u origin main
+npm run typecheck   # tsc --noEmit
+npm run lint        # next lint (eslint-config-next)
+npm test            # vitest — validators, extraction helpers, prompt assembly, SSRF guard
 ```
+
+CI (`.github/workflows/ci.yml`) runs typecheck, lint, tests, and a production build on every PR.
 
 ---
 
 ## Scripts
 
-| Command         | Description                |
-| --------------- | ------------------------- |
-| `npm run dev`   | Start dev server          |
-| `npm run build` | Production build          |
-| `npm start`     | Run production server     |
-| `npm run lint`  | Lint                      |
+| Command           | Description                |
+| ----------------- | ------------------------- |
+| `npm run dev`     | Start dev server          |
+| `npm run build`   | Production build          |
+| `npm start`       | Run production server     |
+| `npm run lint`    | Lint                      |
+| `npm run typecheck` | Type-check (no emit)    |
+| `npm test`        | Run unit tests (Vitest)   |
 
 ---
 
