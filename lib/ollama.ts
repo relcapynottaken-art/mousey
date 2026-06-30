@@ -22,6 +22,9 @@ export async function checkOllama(baseUrl: string): Promise<OllamaStatus> {
       // short timeout so the UI never hangs when Ollama is offline
       signal: AbortSignal.timeout(2500),
       cache: "no-store",
+      // Don't follow redirects: an allowed loopback host must not be able to
+      // bounce the server-side request to a blocked target (SSRF).
+      redirect: "error",
     });
     if (!res.ok) {
       return { running: false, models: [], endpoint, error: `HTTP ${res.status}` };
@@ -78,6 +81,8 @@ export async function generateWithOllama({
       }),
       signal: AbortSignal.timeout(120000),
       cache: "no-store",
+      // See checkOllama: never follow redirects off the validated endpoint.
+      redirect: "error",
     });
   } catch {
     throw new Error(

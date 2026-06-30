@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateWithOllama } from "@/lib/ollama";
-import { defaultOllamaSettings } from "@/lib/config";
+import { defaultOllamaSettings, resolveOllamaSettings } from "@/lib/config";
 import { getSubscription } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   }
 
   const tone = body.tone || "confident, direct, builder-focused";
-  const settings = { ...defaultOllamaSettings(), ...(body.settings || {}) };
+  const settings = resolveOllamaSettings(body.settings);
 
   try {
     const rewritten = await generateWithOllama({

@@ -150,8 +150,13 @@ export function SettingsClient() {
     }
   }
 
-  function copyRemix(r: Remix) {
-    navigator.clipboard?.writeText(r.prompt);
+  async function copyRemix(r: Remix) {
+    if (!navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(r.prompt);
+    } catch {
+      return;
+    }
     setCopiedId(r.id);
     setTimeout(() => setCopiedId((id) => (id === r.id ? null : id)), 1600);
   }
@@ -182,8 +187,13 @@ export function SettingsClient() {
     loadRemixes(); // quota period flips back to the free daily limit
   }
 
-  function copyPrompt() {
-    navigator.clipboard?.writeText(prompt);
+  async function copyPrompt() {
+    if (!navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(prompt);
+    } catch {
+      return;
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   }

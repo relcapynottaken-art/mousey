@@ -49,11 +49,23 @@ function withLock<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 async function readDb(): Promise<DbShape> {
+  // Only a missing file means "empty store". A parse failure or permission
+  // error must surface, not silently reset — otherwise the next write would
+  // persist an empty store over real subscriptions/quota/history.
+  let raw: string;
+  try {
+    raw = await fs.readFile(DB_PATH, "utf8");
+  } catch (err) {
+    const code = err && typeof err === "object" && "code" in err ? (err as { code?: string }).code : undefined;
+    if (code === "ENOENT") return emptyDb();
+    throw err;
+  }
+
   let parsed: unknown;
   try {
-    parsed = JSON.parse(await fs.readFile(DB_PATH, "utf8"));
+    parsed = JSON.parse(raw);
   } catch {
-    return emptyDb();
+    throw new Error(`Local store is not valid JSON: ${DB_PATH}`);
   }
   if (!parsed || typeof parsed !== "object") return emptyDb();
 

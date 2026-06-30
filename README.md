@@ -97,9 +97,13 @@ All configuration is **local-only**. There are **no cloud API keys**. Copy `.env
 | `OLLAMA_ALLOWED_HOSTS` | _(empty)_                      | Extra non-loopback hosts allowed for the Ollama endpoint (SSRF allowlist) |
 | `DATABASE_URL`       | `file:./data/subscriptions.json` | Local mock subscription store                      |
 
-> **Endpoint safety:** the configurable Ollama endpoint is fetched **server-side**, so it is
-> restricted to loopback addresses (`localhost`, `127.0.0.0/8`, `::1`) to prevent SSRF on hosted
-> deployments. To target Ollama on another machine, list that host in `OLLAMA_ALLOWED_HOSTS`.
+> **Endpoint safety (SSRF):** the Ollama endpoint is fetched **server-side**. In **production**
+> the client-supplied endpoint is ignored entirely — only the operator-configured `OLLAMA_BASE_URL`
+> (plus `OLLAMA_ALLOWED_HOSTS`) is trusted, so a visitor can't point the server at loopback-only
+> services on the host. In **local/dev** runs the in-app Settings endpoint still works so you can
+> target your own Ollama. As defense-in-depth, only loopback hosts (`localhost`, `127.0.0.0/8`,
+> `::1`) or hosts in `OLLAMA_ALLOWED_HOSTS` are ever allowed, and redirects off the endpoint are
+> rejected.
 
 > No `STRIPE_*`, `OPENAI_*`, `ANTHROPIC_*`, `GOOGLE_*`, or other cloud keys are used anywhere.
 

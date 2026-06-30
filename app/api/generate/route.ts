@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateWithOllama } from "@/lib/ollama";
 import { buildBasePrompt, refinementSystemPrompt } from "@/lib/prompt";
-import { defaultOllamaSettings } from "@/lib/config";
+import { defaultOllamaSettings, resolveOllamaSettings } from "@/lib/config";
 import { consumeRemix, getQuotaStatus, getSubscription, saveRemix } from "@/lib/store";
 import type { DesignSystem } from "@/lib/types";
 
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing or invalid designSystem" }, { status: 400 });
   }
 
-  const settings = { ...defaultOllamaSettings(), ...(body.settings || {}) };
+  const settings = resolveOllamaSettings(body.settings);
   const basePrompt = buildBasePrompt(ds);
 
   // If the remix quota is exhausted, still return the deterministic base prompt
